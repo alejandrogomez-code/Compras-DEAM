@@ -2,28 +2,47 @@
 
 import { formatNumero, claseColorNumero } from '@/lib/format';
 
-// Columnas visibles según la pestaña activa dentro de Monitor de stock.
-// "reservado", "demo", "no_conforme" y "cuarentena" abren el detalle al hacer click.
+export default function TablaMonitor({ productos, seleccionados, onToggleSeleccion, onToggleTodos, onVerDetalle }) {
+  const todosSeleccionados = productos.length > 0 && productos.every((p) => seleccionados.has(p.producto_id));
 
-export default function TablaMonitor({ productos, onVerDetalle }) {
   return (
     <div className="data-table-wrap">
       <table className="data-table">
         <thead>
           <tr>
+            <th className="col-check">
+              <input
+                type="checkbox"
+                checked={todosSeleccionados}
+                onChange={(e) => onToggleTodos(e.target.checked)}
+                aria-label="Seleccionar todos"
+              />
+            </th>
             <th>Producto</th>
-            <th className="num">Stock</th>
+            <th>Proveedor</th>
+            <th className="num">Stock ya</th>
             <th className="num">Reservado</th>
             <th className="num">Demo</th>
             <th className="num">NC</th>
             <th className="num">Cuarentena</th>
-            <th className="num">Disponible</th>
+            <th className="num">En camino</th>
+            <th className="num col-no-disponible-header">No disponible</th>
+            <th className="num col-disponible-header">Disponible</th>
           </tr>
         </thead>
         <tbody>
           {productos.map((p) => (
             <tr key={p.producto_id}>
+              <td className="col-check">
+                <input
+                  type="checkbox"
+                  checked={seleccionados.has(p.producto_id)}
+                  onChange={() => onToggleSeleccion(p.producto_id)}
+                  aria-label={`Seleccionar ${p.descripcion}`}
+                />
+              </td>
               <td>{p.descripcion}</td>
+              <td style={{ color: 'var(--text-secondary)' }}>{p.proveedor_nombre || '—'}</td>
               <td className="num-tabular">{formatNumero(p.stock_ya)}</td>
               <td className="num-tabular">
                 {p.reservado > 0 ? (
@@ -61,14 +80,18 @@ export default function TablaMonitor({ productos, onVerDetalle }) {
                   <span style={{ color: 'var(--text-muted)' }}>0</span>
                 )}
               </td>
-              <td className={`num-tabular ${claseColorNumero(p.disponible)}`}>
+              <td className="num-tabular">
+                {p.en_camino > 0 ? formatNumero(p.en_camino) : <span style={{ color: 'var(--text-muted)' }}>0</span>}
+              </td>
+              <td className="num-tabular col-no-disponible">{formatNumero(p.no_disponible)}</td>
+              <td className={`num-tabular col-disponible ${claseColorNumero(p.disponible)}`}>
                 {formatNumero(p.disponible)}
               </td>
             </tr>
           ))}
           {productos.length === 0 && (
             <tr>
-              <td colSpan={7} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '24px 0' }}>
+              <td colSpan={11} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '24px 0' }}>
                 No hay productos para mostrar.
               </td>
             </tr>
