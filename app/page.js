@@ -5,8 +5,16 @@ import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { formatNumero, claseColorNumero } from '@/lib/format';
 import { exportarMonitorAExcel, descargarPlantillaImport, leerExcelImport, aplicarImportMonitor } from '@/lib/excelMonitor';
+import {
+  exportarNoConformeAExcel, descargarPlantillaNoConforme, leerImportNoConforme, aplicarImportNoConforme,
+  exportarCuarentenaAExcel, descargarPlantillaCuarentena, leerImportCuarentena, aplicarImportCuarentena,
+} from '@/lib/excelNoConformeCuarentena';
 import TablaMonitor from '@/components/TablaMonitor';
+import TablaNoConforme from '@/components/TablaNoConforme';
+import TablaCuarentena from '@/components/TablaCuarentena';
 import ModalDetalleReservas from '@/components/ModalDetalleReservas';
+import ModalDetalleNoConforme from '@/components/ModalDetalleNoConforme';
+import ModalDetalleCuarentena from '@/components/ModalDetalleCuarentena';
 import ModalResultadoImport from '@/components/ModalResultadoImport';
 
 const PESTANAS = [
@@ -22,22 +30,30 @@ export default function MonitorStockPage() {
   const fileInputRef = useRef(null);
 
   const [productos, setProductos] = useState([]);
+  const [registrosNC, setRegistrosNC] = useState([]);
+  const [registrosCuarentena, setRegistrosCuarentena] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [pestana, setPestana] = useState('general');
   const [busqueda, setBusqueda] = useState('');
   const [proveedorFiltro, setProveedorFiltro] = useState('');
   const [modalProducto, setModalProducto] = useState(null);
+  const [modalNC, setModalNC] = useState(null);
+  const [modalCuarentena, setModalCuarentena] = useState(null);
   const [seleccionados, setSeleccionados] = useState(new Set());
   const [importando, setImportando] = useState(false);
   const [resumenImport, setResumenImport] = useState(null);
+  const [lineasResumenImport, setLineasResumenImport] = useState(null);
 
   async function cargarMonitor() {
     setCargando(true);
-    const { data, error } = await supabase
-      .from('monitor_stock')
-      .select('*')
-      .order('descripcion', { ascending: true });
-    if (!error) setProductos(data || []);
+    const [{ data: monitor, error }, { data: nc }, { data: cu }] = await Promise.all([
+      supabase.from('monitor_stock').select('*').order('descripcion', { ascending: true }),
+      supabase.from('no_conforme').select('*, productos(descripcion, material_sap, categoria)').order('fecha_ingreso', { ascending: false }),
+      supabase.from('cuarentena').select('*, productos(descripcion, material_sap, categoria)').order('fecha_ingreso', { ascending: false }),
+    ]);
+    if (!error) setProductos(monitor || []);
+    setRegistrosNC(nc || []);
+    setRegistrosCuarentena(cu || []);
     setCargando(false);
   }
 
@@ -54,17 +70,15 @@ export default function MonitorStockPage() {
     return {
       reservado: productos.filter((p) => p.reservado > 0).length,
       demo: productos.filter((p) => p.en_demo > 0).length,
-      no_conforme: productos.filter((p) => p.no_conforme > 0).length,
-      cuarentena: productos.filter((p) => p.en_cuarentena > 0).length,
+      no_conforme: registrosNC.filter((r) => r.estado === 'pendiente' || r.estado === 'en_revision').length,
+      cuarentena: registrosCuarentena.filter((r) => r.estado === 'pendiente').length,
     };
-  }, [productos]);
+  }, [productos, registrosNC, registrosCuarentena]);
 
   const productosFiltrados = useMemo(() => {
     let lista = productos;
     if (pestana === 'reservado') lista = lista.filter((p) => p.reservado > 0);
     if (pestana === 'demo') lista = lista.filter((p) => p.en_demo > 0);
-    if (pestana === 'no_conforme') lista = lista.filter((p) => p.no_conforme > 0);
-    if (pestana === 'cuarentena') lista = lista.filter((p) => p.en_cuarentena > 0);
     if (proveedorFiltro) lista = lista.filter((p) => p.proveedor_nombre === proveedorFiltro);
     if (busqueda.trim()) {
       const q = busqueda.trim().toLowerCase();
@@ -72,6 +86,24 @@ export default function MonitorStockPage() {
     }
     return lista;
   }, [productos, pestana, busqueda, proveedorFiltro]);
+
+  const noConformeFiltrado = useMemo(() => {
+    let lista = registrosNC;
+    if (busqueda.trim()) {
+      const q = busqueda.trim().toLowerCase();
+      lista = lista.filter((r) => r.productos?.descripcion?.toLowerCase().includes(q));
+    }
+    return lista;
+  }, [registrosNC, busqueda]);
+
+  const cuarentenaFiltrada = useMemo(() => {
+    let lista = registrosCuarentena;
+    if (busqueda.trim()) {
+      const q = busqueda.trim().toLowerCase();
+      lista = lista.filter((r) => r.productos?.descripcion?.toLowerCase().includes(q));
+    }
+    return lista;
+  }, [registrosCuarentena, busqueda]);
 
   const resumen = useMemo(() => {
     const negativos = productos.filter((p) => p.disponible < 0).length;
@@ -110,7 +142,15 @@ export default function MonitorStockPage() {
   }
 
   function handleExportar() {
-    exportarMonitorAExcel(productosFiltrados);
+    if (pestana === 'no_conforme') return exportarNoConformeAExcel(noConformeFiltrado);
+    if (pestana === 'cuarentena') return exportarCuarentenaAExcel(cuarentenaFiltrada);
+    return exportarMonitorAExcel(productosFiltrados);
+  }
+
+  function handlePlantilla() {
+    if (pestana === 'no_conforme') return descargarPlantillaNoConforme();
+    if (pestana === 'cuarentena') return descargarPlantillaCuarentena();
+    return descargarPlantillaImport();
   }
 
   async function handleImportar(e) {
@@ -118,17 +158,39 @@ export default function MonitorStockPage() {
     if (!file) return;
     setImportando(true);
     try {
-      const filas = await leerExcelImport(file);
-      const resumen = await aplicarImportMonitor(filas);
-      setResumenImport(resumen);
+      if (pestana === 'no_conforme') {
+        const filas = await leerImportNoConforme(file);
+        const r = await aplicarImportNoConforme(filas);
+        setResumenImport(r);
+        setLineasResumenImport([
+          { label: 'registros de No Conforme creados', valor: r.registrosCreados, color: 'verde' },
+          { label: 'productos nuevos dados de alta (repuesto/accesorio)', valor: r.productosNuevos, color: 'neutro' },
+        ]);
+      } else if (pestana === 'cuarentena') {
+        const filas = await leerImportCuarentena(file);
+        const r = await aplicarImportCuarentena(filas);
+        setResumenImport(r);
+        setLineasResumenImport([
+          { label: 'registros de Cuarentena creados', valor: r.registrosCreados, color: 'verde' },
+          { label: 'productos nuevos dados de alta (repuesto/accesorio)', valor: r.productosNuevos, color: 'neutro' },
+        ]);
+      } else {
+        const filas = await leerExcelImport(file);
+        const r = await aplicarImportMonitor(filas);
+        setResumenImport(r);
+        setLineasResumenImport(null);
+      }
       await cargarMonitor();
     } catch (err) {
-      setResumenImport({ productosNuevos: 0, productosActualizados: 0, errores: [err.message || 'Error al leer el archivo'] });
+      setResumenImport({ errores: [err.message || 'Error al leer el archivo'] });
+      setLineasResumenImport([]);
     } finally {
       setImportando(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
   }
+
+  const esPestanaConTablaPropia = pestana === 'no_conforme' || pestana === 'cuarentena';
 
   return (
     <div>
@@ -171,17 +233,19 @@ export default function MonitorStockPage() {
         </div>
 
         <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-          <select
-            className="input"
-            value={proveedorFiltro}
-            onChange={(e) => setProveedorFiltro(e.target.value)}
-            style={{ width: 160 }}
-          >
-            <option value="">Todos los proveedores</option>
-            {proveedores.map((p) => (
-              <option key={p} value={p}>{p}</option>
-            ))}
-          </select>
+          {!esPestanaConTablaPropia && (
+            <select
+              className="input"
+              value={proveedorFiltro}
+              onChange={(e) => setProveedorFiltro(e.target.value)}
+              style={{ width: 160 }}
+            >
+              <option value="">Todos los proveedores</option>
+              {proveedores.map((p) => (
+                <option key={p} value={p}>{p}</option>
+              ))}
+            </select>
+          )}
           <input
             className="input"
             placeholder="Buscar producto..."
@@ -190,7 +254,7 @@ export default function MonitorStockPage() {
             style={{ width: 200 }}
           />
           <button className="btn" onClick={handleExportar}>Exportar Excel</button>
-          <button className="btn" onClick={descargarPlantillaImport}>Plantilla</button>
+          <button className="btn" onClick={handlePlantilla}>Plantilla</button>
           <button className="btn" onClick={() => fileInputRef.current?.click()} disabled={importando}>
             {importando ? 'Importando...' : 'Importar Excel'}
           </button>
@@ -206,6 +270,10 @@ export default function MonitorStockPage() {
 
       {cargando ? (
         <p style={{ color: 'var(--text-secondary)' }}>Cargando...</p>
+      ) : pestana === 'no_conforme' ? (
+        <TablaNoConforme registros={noConformeFiltrado} onVerDetalle={(r) => setModalNC(r)} />
+      ) : pestana === 'cuarentena' ? (
+        <TablaCuarentena registros={cuarentenaFiltrada} onVerDetalle={(r) => setModalCuarentena(r)} />
       ) : (
         <TablaMonitor
           productos={productosFiltrados}
@@ -216,7 +284,7 @@ export default function MonitorStockPage() {
         />
       )}
 
-      {seleccionados.size > 0 && (
+      {!esPestanaConTablaPropia && seleccionados.size > 0 && (
         <div className="barra-seleccion">
           <div className="barra-seleccion-inner">
             <span>{seleccionados.size} producto{seleccionados.size !== 1 ? 's' : ''} seleccionado{seleccionados.size !== 1 ? 's' : ''}</span>
@@ -234,8 +302,28 @@ export default function MonitorStockPage() {
         />
       )}
 
+      {modalNC && (
+        <ModalDetalleNoConforme
+          registro={modalNC}
+          onClose={() => setModalNC(null)}
+          onGuardado={cargarMonitor}
+        />
+      )}
+
+      {modalCuarentena && (
+        <ModalDetalleCuarentena
+          registro={modalCuarentena}
+          onClose={() => setModalCuarentena(null)}
+          onGuardado={cargarMonitor}
+        />
+      )}
+
       {resumenImport && (
-        <ModalResultadoImport resumen={resumenImport} onClose={() => setResumenImport(null)} />
+        <ModalResultadoImport
+          resumen={resumenImport}
+          lineas={lineasResumenImport}
+          onClose={() => { setResumenImport(null); setLineasResumenImport(null); }}
+        />
       )}
     </div>
   );

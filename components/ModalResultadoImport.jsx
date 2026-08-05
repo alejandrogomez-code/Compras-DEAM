@@ -1,7 +1,15 @@
 'use client';
 
-export default function ModalResultadoImport({ resumen, onClose }) {
+// Modal genérico de resultado de import. `lineas` es un array de
+// { label, valor, color } para mostrar como badges, y `errores` la lista
+// de mensajes de error (si los hubo).
+export default function ModalResultadoImport({ resumen, lineas, onClose }) {
   if (!resumen) return null;
+
+  const filasResumen = lineas || [
+    { label: 'productos nuevos dados de alta', valor: resumen.productosNuevos, color: 'verde' },
+    { label: 'productos existentes actualizados (stock ya / de salida)', valor: resumen.productosActualizados, color: 'neutro' },
+  ];
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -17,13 +25,12 @@ export default function ModalResultadoImport({ resumen, onClose }) {
           </button>
         </div>
         <div className="modal-body" style={{ paddingBottom: 16 }}>
-          <p style={{ fontSize: 13, margin: '12px 0' }}>
-            <span className="badge badge-verde">{resumen.productosNuevos}</span> productos nuevos dados de alta
-          </p>
-          <p style={{ fontSize: 13, margin: '12px 0' }}>
-            <span className="badge badge-neutro">{resumen.productosActualizados}</span> productos existentes actualizados (stock ya / de salida)
-          </p>
-          {resumen.errores.length > 0 && (
+          {filasResumen.map((f, i) => (
+            <p key={i} style={{ fontSize: 13, margin: '12px 0' }}>
+              <span className={`badge badge-${f.color}`}>{f.valor}</span> {f.label}
+            </p>
+          ))}
+          {resumen.errores?.length > 0 && (
             <div style={{ marginTop: 12 }}>
               <p style={{ fontSize: 13, color: 'var(--rojo)', fontWeight: 600, margin: '0 0 6px' }}>
                 {resumen.errores.length} fila(s) con error:
