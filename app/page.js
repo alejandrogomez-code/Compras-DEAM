@@ -13,6 +13,7 @@ import TablaMonitor from '@/components/TablaMonitor';
 import TablaNoConforme from '@/components/TablaNoConforme';
 import TablaCuarentena from '@/components/TablaCuarentena';
 import ModalDetalleReservas from '@/components/ModalDetalleReservas';
+import ModalDetallePorProducto from '@/components/ModalDetallePorProducto';
 import ModalDetalleNoConforme from '@/components/ModalDetalleNoConforme';
 import ModalDetalleCuarentena from '@/components/ModalDetalleCuarentena';
 import ModalResultadoImport from '@/components/ModalResultadoImport';
@@ -37,6 +38,7 @@ export default function MonitorStockPage() {
   const [busqueda, setBusqueda] = useState('');
   const [proveedorFiltro, setProveedorFiltro] = useState('');
   const [modalProducto, setModalProducto] = useState(null);
+  const [modalPorProducto, setModalPorProducto] = useState(null); // { producto, tipo } para demo/no_conforme/cuarentena
   const [modalNC, setModalNC] = useState(null);
   const [modalCuarentena, setModalCuarentena] = useState(null);
   const [seleccionados, setSeleccionados] = useState(new Set());
@@ -111,8 +113,12 @@ export default function MonitorStockPage() {
     return { negativos, totalDisponible, total: productos.length };
   }, [productos]);
 
-  function abrirDetalle(producto) {
-    setModalProducto(producto);
+  function abrirDetalle(producto, tipo) {
+    if (tipo === 'reservado') {
+      setModalProducto(producto);
+    } else {
+      setModalPorProducto({ producto, tipo });
+    }
   }
 
   function toggleSeleccion(productoId) {
@@ -280,7 +286,7 @@ export default function MonitorStockPage() {
           seleccionados={seleccionados}
           onToggleSeleccion={toggleSeleccion}
           onToggleTodos={toggleTodos}
-          onVerDetalle={(p) => abrirDetalle(p)}
+          onVerDetalle={(p, tipo) => abrirDetalle(p, tipo)}
         />
       )}
 
@@ -299,6 +305,14 @@ export default function MonitorStockPage() {
           producto={modalProducto}
           onClose={() => setModalProducto(null)}
           onCambio={cargarMonitor}
+        />
+      )}
+
+      {modalPorProducto && (
+        <ModalDetallePorProducto
+          producto={modalPorProducto.producto}
+          tipo={modalPorProducto.tipo}
+          onClose={() => setModalPorProducto(null)}
         />
       )}
 
